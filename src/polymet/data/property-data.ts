@@ -1,56 +1,33 @@
 export const PROPERTY_DATA = {
   id: "prop123",
-  title: "2BHK Duplex Flat | Near Baga - Calangute Beach",
+  title: "Stunning 2 Bed with Private Pool in Tranquil Arpora",
   location: {
     city: "Arpora",
     state: "Goa",
     country: "India",
-    description: "Exact location provided after booking.",
-    coordinates: {
-      lat: 15.5685,
-      lng: 73.7494,
-    },
+    description:
+      "Located in the heart of Arpora, close to famous beaches and nightlife.",
+    coordinates: { lat: 15.5615, lng: 73.7641 },
   },
   details: {
-    type: "Entire apartment",
-    guests: 5,
+    type: "Entire villa",
+    guests: 4,
     bedrooms: 2,
     beds: 2,
-    bathrooms: 2,
+    baths: 2,
   },
+  images: [
+    { id: 1, url: "/Images/fa41863c-3bc2-4d72-a201-15fa2562dee1.avif", alt: "Property Image 1" },
+    { id: 2, url: "/Images/ce1a4454-3fdf-4b6b-81b8-237937478f55 (1).webp", alt: "Property Image 2" },
+    { id: 3, url: "/Images/88e6a511-cab5-4f43-a83f-192a4117c0e3.webp", alt: "Property Image 3" },
+    { id: 4, url: "/Images/e182e7e0-557c-4346-93a2-43205b45eb49.webp", alt: "Property Image 4" },
+    { id: 5, url: "/Images/9190a5d5-c42f-474e-b740-62ae3430deb5.webp", alt: "Property Image 5" },
+  ],
   pricing: {
     basePrice: 4500,
     currency: "₹",
     includesFees: true,
   },
-  images: [
-    {
-      id: 1,
-      url: "https://picsum.photos/seed/property1/800/600",
-      alt: "Living room with orange sofa and wooden coffee table",
-    },
-    {
-      id: 2,
-      url: "https://picsum.photos/seed/property2/800/600",
-      alt: "Modern bathroom with bathtub",
-    },
-    {
-      id: 3,
-      url: "https://picsum.photos/seed/property3/800/600",
-      alt: "Garden pathway",
-    },
-    {
-      id: 4,
-      url: "https://picsum.photos/seed/property4/800/600",
-      alt: "Bedroom with window",
-    },
-    {
-      id: 5,
-      url: "https://picsum.photos/seed/property5/800/600",
-      alt: "Kitchen area",
-    },
-  ],
-
   amenities: {
     bathroom: [
       "Hair dryer",

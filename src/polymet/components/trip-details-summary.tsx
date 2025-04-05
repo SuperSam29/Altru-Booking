@@ -3,8 +3,8 @@ import { format } from "date-fns";
 
 interface TripDetailsSummaryProps {
   tripDetails: {
-    checkIn: Date;
-    checkOut: Date;
+    checkIn: Date | null;
+    checkOut: Date | null;
     guests: number;
   };
   onEdit: (type: "dates" | "guests") => void;
@@ -16,13 +16,13 @@ export default function TripDetailsSummary({
 }: TripDetailsSummaryProps) {
   const { checkIn, checkOut, guests } = tripDetails;
 
-  const formatDate = (date: Date) => {
-    return format(date, "d MMM");
+  const formatDate = (date: Date | null) => {
+    return date ? format(date, "d MMM") : "";
   };
 
-  const nightsCount = Math.ceil(
+  const nightsCount = checkIn && checkOut ? Math.ceil(
     (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24),
-  );
+  ) : 0;
 
   return (
     <div

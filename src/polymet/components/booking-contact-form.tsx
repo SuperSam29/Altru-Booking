@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,8 @@ import { ChevronDownIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 
 interface BookingContactFormProps {
-  onSubmit: (data: { countryCode: string; phoneNumber: string }) => void;
+  onSubmit: (data: { fullName: string; email: string; countryCode: string; phoneNumber: string }) => void;
+  isSubmitting: boolean;
 }
 
 const COUNTRY_CODES = [
@@ -31,20 +32,23 @@ const COUNTRY_CODES = [
 
 export default function BookingContactForm({
   onSubmit,
+  isSubmitting,
 }: BookingContactFormProps) {
-  const [countryCode, setCountryCode] = useState("+44");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [countryCode, setCountryCode] = useState("+91");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isFormValid = useMemo(() => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return fullName.trim() !== "" && emailRegex.test(email) && phoneNumber.trim() !== "";
+  }, [fullName, email, phoneNumber]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
+    if (!isFormValid || isSubmitting) return;
 
-    // Simulate API call
-    setTimeout(() => {
-      onSubmit({ countryCode, phoneNumber });
-      setIsSubmitting(false);
-    }, 1000);
+    onSubmit({ fullName, email, countryCode, phoneNumber });
   };
 
   return (
@@ -83,8 +87,62 @@ export default function BookingContactForm({
           data-pol-file-type="component"
         >
           <Label
-            htmlFor="country-code"
+            htmlFor="full-name"
             data-pol-id="tedcez"
+            data-pol-file-name="booking-contact-form"
+            data-pol-file-type="component"
+          >
+            Full Name
+          </Label>
+          <Input
+            id="full-name"
+            type="text"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="Enter your full name"
+            required
+            data-pol-id="cv9zf7"
+            data-pol-file-name="booking-contact-form"
+            data-pol-file-type="component"
+          />
+        </div>
+
+        <div
+          className="space-y-2"
+          data-pol-id="6uwlu7"
+          data-pol-file-name="booking-contact-form"
+          data-pol-file-type="component"
+        >
+          <Label
+            htmlFor="email"
+            data-pol-id="9lkr88"
+            data-pol-file-name="booking-contact-form"
+            data-pol-file-type="component"
+          >
+            Email
+          </Label>
+          <Input
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Enter your email address"
+            required
+            data-pol-id="cv9zf7"
+            data-pol-file-name="booking-contact-form"
+            data-pol-file-type="component"
+          />
+        </div>
+
+        <div
+          className="space-y-2"
+          data-pol-id="6uwlu7"
+          data-pol-file-name="booking-contact-form"
+          data-pol-file-type="component"
+        >
+          <Label
+            htmlFor="country-code"
+            data-pol-id="9lkr88"
             data-pol-file-name="booking-contact-form"
             data-pol-file-type="component"
           >
@@ -179,12 +237,12 @@ export default function BookingContactForm({
           type="submit"
           className="w-full"
           size="lg"
-          disabled={isSubmitting}
+          disabled={isSubmitting || !isFormValid}
           data-pol-id="l2ft8z"
           data-pol-file-name="booking-contact-form"
           data-pol-file-type="component"
         >
-          {isSubmitting ? "Processing..." : "Continue"}
+          {isSubmitting ? "Processing..." : (isFormValid ? "Continue to payment" : "Continue")}
         </Button>
       </form>
     </div>

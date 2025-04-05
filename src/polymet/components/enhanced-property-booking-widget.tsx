@@ -19,10 +19,12 @@ interface EnhancedPropertyBookingWidgetProps {
     currency: string;
     includesFees: boolean;
   };
+  propertyId: string;
 }
 
 export default function EnhancedPropertyBookingWidget({
   pricing,
+  propertyId,
 }: EnhancedPropertyBookingWidgetProps) {
   const [checkInDate, setCheckInDate] = useState<Date>();
   const [checkOutDate, setCheckOutDate] = useState<Date>();
@@ -114,19 +116,11 @@ export default function EnhancedPropertyBookingWidget({
       >
         <PropertyBookingCalendar
           onChange={handleDateChange}
+          propertyId={propertyId}
           data-pol-id="er0dig"
           data-pol-file-name="enhanced-property-booking-widget"
           data-pol-file-type="component"
         />
-      </div>
-
-      <div
-        className="text-center text-sm text-muted-foreground"
-        data-pol-id="isdbjm"
-        data-pol-file-name="enhanced-property-booking-widget"
-        data-pol-file-type="component"
-      >
-        You won't be charged yet
       </div>
     </div>
   );

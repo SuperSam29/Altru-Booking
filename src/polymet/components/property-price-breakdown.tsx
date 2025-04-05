@@ -3,7 +3,6 @@ interface PriceBreakdownProps {
     basePrice: number;
     currency: string;
     nights: number;
-    serviceFee: number;
     taxes: number;
     total: number;
   };
@@ -12,7 +11,7 @@ interface PriceBreakdownProps {
 export default function PropertyPriceBreakdown({
   pricing,
 }: PriceBreakdownProps) {
-  const { basePrice, currency, nights, serviceFee, taxes, total } = pricing;
+  const { basePrice, currency, nights, taxes, total } = pricing;
   const nightlyTotal = basePrice * nights;
 
   return (
@@ -57,28 +56,6 @@ export default function PropertyPriceBreakdown({
           >
             {currency}
             {nightlyTotal.toLocaleString()}
-          </span>
-        </div>
-        <div
-          className="flex justify-between"
-          data-pol-id="17g60s"
-          data-pol-file-name="property-price-breakdown"
-          data-pol-file-type="component"
-        >
-          <span
-            data-pol-id="pw4qkr"
-            data-pol-file-name="property-price-breakdown"
-            data-pol-file-type="component"
-          >
-            Service fee
-          </span>
-          <span
-            data-pol-id="ghwuhr"
-            data-pol-file-name="property-price-breakdown"
-            data-pol-file-type="component"
-          >
-            {currency}
-            {serviceFee.toLocaleString()}
           </span>
         </div>
         <div

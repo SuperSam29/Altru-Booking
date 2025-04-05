@@ -28,16 +28,26 @@ export default function PropertyLocationMapWrapper({
   useEffect(() => {
     // Check if Google Maps API is available
     const checkGoogleMapsAvailability = () => {
-      // If we're in a browser environment
       if (typeof window !== "undefined") {
-        // For demo purposes, we'll assume Google Maps is not available
-        // In a real app, you would check for API key and script loading
+        // Check if the google.maps object exists
+        const mapsAvailable = !!(window.google && window.google.maps);
+        setIsGoogleMapsAvailable(mapsAvailable);
+        if (!mapsAvailable) {
+            console.warn("Google Maps API script not loaded or API key might be missing/invalid.");
+        }
+      } else {
+        // Cannot check on server-side
         setIsGoogleMapsAvailable(false);
       }
       setIsLoading(false);
     };
 
-    checkGoogleMapsAvailability();
+    // Run the check after a short delay to allow potential script loading
+    const timer = setTimeout(checkGoogleMapsAvailability, 500);
+
+    // Cleanup the timer if the component unmounts
+    return () => clearTimeout(timer);
+    
   }, []);
 
   if (isLoading) {

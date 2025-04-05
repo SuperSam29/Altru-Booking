@@ -62,14 +62,6 @@ export default function PropertyPageEnhanced() {
             data-pol-file-name="property-page-enhanced"
             data-pol-file-type="page"
           >
-            <h2
-              className="text-2xl font-semibold mb-4"
-              data-pol-id="tapsst"
-              data-pol-file-name="property-page-enhanced"
-              data-pol-file-type="page"
-            >
-              What this place offers
-            </h2>
             <PropertyAmenitiesList
               amenities={property.amenities}
               unavailableAmenities={property.unavailableAmenities}
@@ -86,14 +78,6 @@ export default function PropertyPageEnhanced() {
             data-pol-file-name="property-page-enhanced"
             data-pol-file-type="page"
           >
-            <h2
-              className="text-2xl font-semibold mb-4"
-              data-pol-id="ijongw"
-              data-pol-file-name="property-page-enhanced"
-              data-pol-file-type="page"
-            >
-              Where you'll be
-            </h2>
             <PropertyLocationMapWrapper
               location={property.location}
               googleMapsUrl={`https://maps.app.goo.gl/S9e4x7NnxkBhvEQ28`}
@@ -112,6 +96,7 @@ export default function PropertyPageEnhanced() {
         >
           <EnhancedPropertyBookingWidget
             pricing={property.pricing}
+            propertyId={propertyId}
             data-pol-id="bncif8"
             data-pol-file-name="property-page-enhanced"
             data-pol-file-type="page"

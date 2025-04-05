@@ -11,27 +11,47 @@ import { CalendarIcon, Loader2, X } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import { fetchAirbnbCalendar, getBlockedDates } from '../utils/airbnb-calendar';
-import { useRouter } from "next/navigation";
+
+// Hardcoded hotelId
+const hotelId = "67eb400244436b877c006482";
+
+// Helper function to get dates before today
+function getPastDates(): Date[] {
+  const pastDates: Date[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Set to start of today
+
+  // Go back a certain period, e.g., 1 year, adjust as needed
+  let currentDate = new Date(today);
+  currentDate.setDate(currentDate.getDate() - 1); // Start from yesterday
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+  while (currentDate >= oneYearAgo) {
+    pastDates.push(new Date(currentDate));
+    currentDate.setDate(currentDate.getDate() - 1);
+  }
+  return pastDates;
+}
 
 interface PropertyBookingCalendarProps {
   onChange?: (checkIn?: Date, checkOut?: Date) => void;
   defaultCheckInDate?: Date;
   defaultCheckOutDate?: Date;
   className?: string;
-  price?: number;
+  propertyId: string;
 }
 
-// Hardcoded Airbnb iCal URL
-const AIRBNB_ICAL_URL = "https://www.airbnb.co.uk/calendar/ical/1194779357845731963.ics?s=ca2a7532c96d1edb8cb1a49c80862fd1";
+// Hardcoded Airbnb iCal URL - (Keep commented out)
+// const AIRBNB_ICAL_URL = "https://www.airbnb.co.uk/calendar/ical/1194779357845731963.ics?s=ca2a7532c96d1edb8cb1a49c80862fd1";
 
 export default function PropertyBookingCalendar({
   onChange,
   defaultCheckInDate,
   defaultCheckOutDate,
   className,
-  price = 4500,
+  propertyId,
 }: PropertyBookingCalendarProps) {
-  const router = useRouter();
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [checkInDate, setCheckInDate] = useState<Date | undefined>(defaultCheckInDate);
   const [checkOutDate, setCheckOutDate] = useState<Date | undefined>(defaultCheckOutDate);
@@ -44,6 +64,11 @@ export default function PropertyBookingCalendar({
   const [isInitialSelection, setIsInitialSelection] = useState(true);
   const [guestCount, setGuestCount] = useState(1);
   const [isGuestSelectorOpen, setIsGuestSelectorOpen] = useState(false);
+
+  // State for dynamic pricing
+  const [dynamicPrice, setDynamicPrice] = useState<number | null>(null);
+  const [isPriceLoading, setIsPriceLoading] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
 
   // Handle check-in date change
   const handleDateSelect = (date: Date | { from?: Date; to?: Date } | undefined) => {
@@ -113,68 +138,71 @@ export default function PropertyBookingCalendar({
     ? { from: checkInDate, to: checkOutDate } 
     : undefined;
 
-  // Load the calendar data when the component mounts
+  // Function to fetch price from the new API
+  const fetchPriceForDates = async (checkIn: Date, checkOut: Date) => {
+    setIsPriceLoading(true);
+    setPriceError(null);
+    setDynamicPrice(null); // Clear previous price
+
+    const checkInFormatted = checkIn.toISOString().split('T')[0]; // YYYY-MM-DD
+    const checkOutFormatted = checkOut.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    const apiUrl = `https://api-nami.lucify.in/api/v1/booking/availability-pricing?hotelId=${hotelId}&checkInAt=${checkInFormatted}&checkOutAt=${checkOutFormatted}`;
+
+    try {
+      console.log("Fetching price from:", apiUrl);
+      const response = await fetch(apiUrl);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("Price API response:", data);
+
+      // *** CORRECTED PATH: Access data.data ***
+      const price = data?.data;
+      
+      if (typeof price === 'number') {
+        setDynamicPrice(price);
+      } else {
+        console.error("Price not found or invalid format in API response:", data);
+        throw new Error("Could not retrieve price.");
+      }
+    } catch (error) {
+      console.error("Error fetching price:", error);
+      setPriceError(error instanceof Error ? error.message : "Failed to fetch price.");
+    } finally {
+      setIsPriceLoading(false);
+    }
+  };
+
+  // useEffect for initial setup (blocking past dates)
   useEffect(() => {
-    loadCalendarData();
+    // loadCalendarData(); // Keep commented out
+    setBlockedDates(getPastDates()); 
+    setIsLoading(false); 
+    setCalendarMessage("Select your desired dates."); 
   }, []);
 
-  // Update numNights when dates change
+  // Update numNights and fetch dynamic price when dates change
   useEffect(() => {
     if (checkInDate && checkOutDate) {
       const nights = Math.round((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
       setNumNights(nights);
+      // Fetch price when both dates are selected
+      fetchPriceForDates(checkInDate, checkOutDate);
     } else {
       setNumNights(0);
+      // Clear dynamic price if dates are incomplete
+      setDynamicPrice(null);
+      setPriceError(null);
+      setIsPriceLoading(false);
     }
   }, [checkInDate, checkOutDate]);
 
-  // Function to load calendar data
-  const loadCalendarData = async () => {
-    setCalendarMessage(null);
-    setIsLoading(true);
-    
-    try {
-      console.log('Fetching calendar data from Airbnb URL:', AIRBNB_ICAL_URL);
-      
-      // Fetch the calendar data
-      const calendarData = await fetchAirbnbCalendar(AIRBNB_ICAL_URL);
-      
-      if (calendarData.success) {
-        console.log('Successfully fetched calendar data');
-        
-        // Get the blocked dates
-        const dates = getBlockedDates(calendarData);
-        console.log(`Found ${dates.length} blocked dates`);
-        
-        // Get available dates count for messaging
-        const availableDatesCount = calendarData.availableDates ? calendarData.availableDates.length : 0;
-        
-        // Update state
-        setBlockedDates(dates);
-        setLastRefreshed(new Date());
-        
-        // Set appropriate message based on the results
-        if (availableDatesCount === 0) {
-          setCalendarMessage('No available dates found.');
-        } else {
-          // Include information about booking periods and available dates
-          const bookingPeriodsCount = calendarData.bookingPeriods ? calendarData.bookingPeriods.length : 0;
-          setCalendarMessage(
-            `${availableDatesCount} available dates shown with ${bookingPeriodsCount} booking periods.`
-          );
-        }
-      } else {
-        console.error('Failed to fetch calendar data');
-        setCalendarMessage('Failed to fetch calendar data.');
-      }
-    } catch (error) {
-      console.error('Error loading calendar data:', error);
-      setCalendarMessage(`Error connecting to the calendar`);
-      setBlockedDates([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Function to load calendar data - (Keep commented out)
+  // const loadCalendarData = async () => { ... };
 
   // Update parent component when dates change
   useEffect(() => {
@@ -197,11 +225,28 @@ export default function PropertyBookingCalendar({
 
   // Function to handle navigation to booking confirmation
   const handleBookingConfirmation = () => {
-    // Navigate to booking confirmation page using Next.js router
-    router.push("/booking-confirmation");
-    
-    // Keep the old code commented out for reference if needed
-    // window.location.href = "/booking-confirmation";
+    // Check if dates, guests, and dynamic price are ready
+    if (checkInDate && checkOutDate && guestCount > 0 && dynamicPrice !== null && !isPriceLoading && !priceError) {
+      // Store booking details in localStorage
+      localStorage.setItem('bookingCheckIn', checkInDate.toISOString());
+      localStorage.setItem('bookingCheckOut', checkOutDate.toISOString());
+      localStorage.setItem('bookingGuests', guestCount.toString());
+      // Store the DYNAMIC price (total for the stay) as bookingBasePrice for confirmation page logic
+      // NOTE: Confirmation page calculates tax based on this being the *nightly* price. 
+      // We need to adjust either here (pass nightly) or on confirmation page (use total).
+      // Let's calculate and pass the average nightly price for consistency with previous logic.
+      const nightlyPrice = numNights > 0 ? dynamicPrice / numNights : 0;
+      localStorage.setItem('bookingBasePrice', nightlyPrice.toString()); 
+
+      // Use propertyId in the navigation path
+      window.location.href = `/property/${propertyId}/booking`;
+    } else {
+      console.error('Booking details incomplete (dates, guests, or price fetching issue), cannot proceed.');
+      // Optionally show an error message to the user
+      if (priceError) setCalendarMessage(`Error: ${priceError}`);
+      else if (isPriceLoading) setCalendarMessage("Still calculating price...");
+      else setCalendarMessage("Please select dates and ensure price is loaded.");
+    }
   };
 
   // Function to increment guest count
@@ -219,7 +264,7 @@ export default function PropertyBookingCalendar({
   };
 
   // Check if all required data is selected for booking
-  const isBookingReady = checkInDate && checkOutDate && guestCount > 0;
+  const isBookingReady = checkInDate && checkOutDate && guestCount > 0 && dynamicPrice !== null && !isPriceLoading && !priceError;
 
   return (
     <div className={`${className}`}>
@@ -328,10 +373,24 @@ export default function PropertyBookingCalendar({
       
       {/* Price and booking button */}
       <div>
-        {numNights > 0 && (
+        {/* Display Dynamic Price Info */} 
+        {isPriceLoading && (
+          <div className="flex justify-between items-center mb-2 text-sm text-gray-500">
+            <span>Calculating price...</span>
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </div>
+        )}
+        {priceError && (
+          <div className="flex justify-between items-center mb-2 text-sm text-red-600">
+            <span>Error loading price</span>
+            {/* Optionally add retry button? */}
+          </div>
+        )}
+        {dynamicPrice !== null && numNights > 0 && (
           <div className="flex justify-between items-center mb-2">
-            <span>₹{price} × {numNights} nights</span>
-            <span>₹{price * numNights}</span>
+            {/* Display total price for the stay */}
+            <span>Total for {numNights} nights</span> 
+            <span>₹{dynamicPrice.toLocaleString()}</span>
           </div>
         )}
         
@@ -340,7 +399,7 @@ export default function PropertyBookingCalendar({
           disabled={!isBookingReady}
           className={`w-full p-3 rounded-lg text-white font-medium transition-colors ${isBookingReady ? 'bg-black hover:bg-gray-800' : 'bg-gray-300 cursor-not-allowed'}`}
         >
-          {isBookingReady ? 'Reserve' : 'Select dates'}
+          {isBookingReady ? 'Reserve' : (isPriceLoading ? 'Calculating...' : (priceError ? 'Try Again Later' : 'Select dates'))}
         </button>
         
         <div className="text-center mt-2 text-sm text-gray-500">
@@ -375,6 +434,7 @@ export default function PropertyBookingCalendar({
               </div>
               
               {isLoading ? (
+                // This might not be reached anymore unless loadCalendarData is called elsewhere
                 <div className="flex items-center justify-center p-6">
                   <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                   <span className="ml-3 text-base">Loading calendar data...</span>
@@ -385,11 +445,15 @@ export default function PropertyBookingCalendar({
                     mode="range"
                     selected={selectedDateRange}
                     onSelect={handleDateSelect}
-                    blockedDates={blockedDates}
+                    // Use blockedDates prop with past dates
+                    blockedDates={blockedDates} 
+                    // Remove disabled prop
+                    // disabled={(date: Date) => date < new Date(new Date().setHours(0, 0, 0, 0))} 
                     className="w-full"
                     defaultMonth={checkInDate || new Date()}
                   />
                   
+                  {/* Restore the legend for blocked dates */}
                   <div className="mt-6 flex items-center">
                     <div className="flex items-center mr-8">
                       <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
@@ -428,7 +492,7 @@ export default function PropertyBookingCalendar({
               </div>
             </div>
           </div>
-            </div>
+        </div>
       )}
       
       {/* Guest selector would go here */}
