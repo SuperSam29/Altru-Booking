@@ -5,10 +5,13 @@ import { ChevronLeft, ChevronRight, X, Circle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
+// Days of week abbreviations
+const DAYS_OF_WEEK = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
 export type DateRange = {
-  from?: Date;
-  to?: Date;
-}
+  from: Date | undefined;
+  to?: Date | undefined;
+};
 
 export type CalendarProps = {
   className?: string;
@@ -46,10 +49,45 @@ function Calendar({
     return typeof value === 'object' && value !== null && !Array.isArray(value) && ('from' in value || 'to' in value);
   };
   
-  // Check if date is blocked
-  const isDateBlocked = (date: Date): boolean => {
-    return blockedDates.some(blockedDate => isSameDay(date, blockedDate));
-  };
+  // Function to check if a date is blocked (unavailable)
+  function isDateBlocked(date: Date, blockedDates?: Date[]) {
+    // In our updated approach:
+    // - blockedDates contains ALL dates that should be blocked (not in availableDates)
+    // - we just need to check if the date exists in blockedDates
+    // - dates before today are also blocked
+    
+    // Block dates in the past
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (date < today) {
+      return true;
+    }
+    
+    if (!blockedDates || blockedDates.length === 0) {
+      // If no blocked dates provided, assume date is available (except past dates)
+      return false;
+    }
+    
+    // Normalize the date to noon for consistent comparison
+    const normalizedDate = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+      12, 0, 0
+    );
+    
+    // Check if this date exists in our blocked dates array
+    return blockedDates.some(blockedDate => {
+      const normalizedBlockedDate = new Date(
+        blockedDate.getFullYear(),
+        blockedDate.getMonth(),
+        blockedDate.getDate(),
+        12, 0, 0
+      );
+      
+      return normalizedDate.getTime() === normalizedBlockedDate.getTime();
+    });
+  }
   
   // Generate days for a given month
   const getDaysInMonth = (date: Date) => {
@@ -113,6 +151,28 @@ function Calendar({
     
     return false;
   };
+
+  // Check if date is the start of range
+  const isRangeStart = (date: Date) => {
+    if (mode !== "range" || !selected || selected instanceof Date) return false;
+    
+    if (isDateRange(selected) && selected.from) {
+      return isSameDay(date, selected.from);
+    }
+    
+    return false;
+  };
+  
+  // Check if date is the end of range
+  const isRangeEnd = (date: Date) => {
+    if (mode !== "range" || !selected || selected instanceof Date) return false;
+    
+    if (isDateRange(selected) && selected.to) {
+      return isSameDay(date, selected.to);
+    }
+    
+    return false;
+  };
   
   // Navigate to previous month
   const handlePrevMonth = () => {
@@ -148,7 +208,7 @@ function Calendar({
   
   // Handle day click
   const handleDayClick = (day: Date) => {
-    if (isDateBlocked(day)) {
+    if (isDateBlocked(day, blockedDates)) {
       setError("This date is blocked and cannot be selected");
       return;
     }
@@ -188,76 +248,73 @@ function Calendar({
   };
   
   const renderDaysOfWeek = () => {
-    const daysOfWeek = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-    return daysOfWeek.map((day, index) => (
-      <div key={index} className="text-center text-[10px] text-muted-foreground font-medium">
+    return DAYS_OF_WEEK.map((day) => (
+      <div
+        key={day}
+        className="h-9 flex items-center justify-center text-sm font-medium text-gray-500"
+      >
         {day}
       </div>
     ));
   };
   
-  const renderMonth = (monthOffset: number) => {
+  // Render each calendar day
+  const renderDay = (day: Date | null, index: number) => {
+    if (!day) {
+      return <div key={`empty-${index}`} className="h-10 w-10"></div>;
+    }
+    
+    const isBlocked = isDateBlocked(day, blockedDates);
+    const isSelected = isDateSelected(day);
+    const isInRange = isDateInRange(day);
+    const startDate = isRangeStart(day);
+    const endDate = isRangeEnd(day);
+    
+    const isToday = isSameDay(day, new Date());
+    
+    return (
+      <div 
+        key={day.toISOString()} 
+        className={cn(
+          "h-10 w-10 p-0 relative",
+          isInRange && "bg-gray-100",
+          startDate && "rounded-l-full",
+          endDate && "rounded-r-full"
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => handleDayClick(day)}
+          disabled={isBlocked}
+          className={cn(
+            "w-9 h-9 flex items-center justify-center rounded-full text-sm font-medium transition-colors hover:bg-gray-200",
+            isBlocked 
+              ? "text-gray-300 cursor-not-allowed bg-red-50" 
+              : startDate || endDate
+                ? "bg-black text-white hover:bg-gray-800" 
+                : isInRange 
+                  ? "hover:bg-gray-300" 
+                  : "hover:bg-gray-200",
+            isToday && !isSelected && "border border-gray-300",
+            isSelected && !startDate && !endDate && "bg-gray-200 font-bold"
+          )}
+        >
+          {day.getDate()}
+        </button>
+      </div>
+    );
+  };
+  
+  // Render the calendar grid for a specific month
+  const renderCalendarGrid = (monthOffset: number) => {
     const monthDate = new Date(currentMonth);
     monthDate.setMonth(currentMonth.getMonth() + monthOffset);
-    const monthName = getMonthName(monthDate);
-    const year = monthDate.getFullYear();
     const days = getDaysInMonth(monthDate);
     
     return (
-      <div className="space-y-1">
-        <div className="text-center font-medium text-xs">
-          {monthName} {year}
-        </div>
-        <div className="grid grid-cols-7 gap-0.5">
-          {renderDaysOfWeek()}
-          
-          {days.map((day, index) => {
-            if (!day) {
-              return <div key={`empty-${index}`} className="p-0.5"></div>;
-            }
-            
-            const isToday = isSameDay(day, new Date());
-            const isSelected = isDateSelected(day);
-            const isInRange = isDateInRange(day);
-            const isBlocked = isDateBlocked(day);
-            
-            // Check if the date is the start or end of a range
-            const isSelectionStart = mode === "range" && 
-              isDateRange(selected) && 
-              selected.from && 
-              isSameDay(day, selected.from);
-              
-            const isSelectionEnd = mode === "range" && 
-              isDateRange(selected) && 
-              selected.to && 
-              isSameDay(day, selected.to);
-            
-            // Style for days that aren't in current month
-            const isPastMonth = monthOffset === 0 && day.getDate() > 20 && index < 10;
-            const isNextMonth = monthOffset === 0 && day.getDate() < 10 && index > 20;
-            const isOutsideCurrentMonth = isPastMonth || isNextMonth;
-            
-            return (
-              <button
-                key={day.toString()}
-                type="button"
-                disabled={isBlocked}
-                className={cn(
-                  "h-6 w-6 p-0 font-normal rounded-full flex items-center justify-center text-xs",
-                  isOutsideCurrentMonth && "text-gray-300",
-                  isToday && !isSelected && "border border-black",
-                  isSelected && "bg-black text-white font-medium",
-                  isInRange && "bg-gray-100",
-                  isBlocked && "line-through text-gray-300 cursor-not-allowed",
-                  !isSelected && !isInRange && !isBlocked && "hover:bg-gray-100"
-                )}
-                onClick={() => handleDayClick(day)}
-              >
-                {day.getDate()}
-              </button>
-            );
-          })}
-        </div>
+      <div className="grid grid-cols-7 gap-1">
+        {renderDaysOfWeek()}
+        {days.map((day, index) => renderDay(day, index))}
       </div>
     );
   };
@@ -285,99 +342,119 @@ function Calendar({
     }
   };
   
+  // Add debugging for the blockedDates prop to ensure it's being passed correctly
+  // Inside the Calendar component, right after destructuring props
+  // Log blocked dates when in range mode to help with debugging
+  React.useEffect(() => {
+    if (mode === "range" && blockedDates && blockedDates.length > 0) {
+      console.log(`Calendar received ${blockedDates.length} blocked dates`);
+      
+      // Log a few samples of April 2025 dates if they exist
+      const april2025Dates = blockedDates.filter(
+        date => date.getFullYear() === 2025 && date.getMonth() === 3
+      );
+      
+      if (april2025Dates.length > 0) {
+        console.log(`Found ${april2025Dates.length} blocked dates in April 2025:`);
+        april2025Dates.slice(0, 5).forEach(date => {
+          console.log(`- ${date.toISOString().split('T')[0]}`);
+        });
+        if (april2025Dates.length > 5) {
+          console.log(`... and ${april2025Dates.length - 5} more`);
+        }
+      }
+    }
+  }, [mode, blockedDates]);
+
+  // Render the month header and grid
+  const renderMonth = (monthOffset: number) => {
+    const monthDate = new Date(currentMonth);
+    monthDate.setMonth(currentMonth.getMonth() + monthOffset);
+    const monthName = getMonthName(monthDate);
+    const year = monthDate.getFullYear();
+    
+    return (
+      <div className="space-y-4">
+        <div className="text-center font-medium text-base">
+          {monthName} {year}
+        </div>
+        {renderCalendarGrid(monthOffset)}
+      </div>
+    );
+  };
+
   return (
-    <div className={cn("p-3 select-none bg-white shadow-lg rounded-lg max-w-[700px]", className)}>
-      <div className="flex items-center justify-between mb-3">
+    <div 
+      className={cn(
+        "p-3 bg-white w-full flex flex-col",
+        className
+      )}
+    >
+      <div className="flex justify-between items-center mb-4">
         <button
           type="button"
-          className={buttonVariants({ variant: "outline", size: "icon", className: "h-7 w-7 p-0 rounded-full border-none hover:bg-gray-100" })}
           onClick={handlePrevMonth}
+          className={cn(
+            buttonVariants({ variant: "outline", size: "icon" }),
+            "h-9 w-9 p-0 rounded-full"
+          )}
         >
-          <ChevronLeft className="h-3 w-3" />
+          <ChevronLeft className="h-5 w-5" />
         </button>
-        {/* Always render exactly 2 months side by side (April and May) to match the design */}
-        <div className="grid grid-cols-2 gap-4 flex-1">
-          {renderMonth(0)}
-          {renderMonth(1)}
-        </div>
+        
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className={cn(
+              buttonVariants({ variant: "outline", size: "icon" }),
+              "h-9 w-9 p-0 rounded-full"
+            )}
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
+        
         <button
           type="button"
-          className={buttonVariants({ variant: "outline", size: "icon", className: "h-7 w-7 p-0 rounded-full border-none hover:bg-gray-100" })}
           onClick={handleNextMonth}
+          className={cn(
+            buttonVariants({ variant: "outline", size: "icon" }),
+            "h-9 w-9 p-0 rounded-full"
+          )}
         >
-          <ChevronRight className="h-3 w-3" />
+          <ChevronRight className="h-5 w-5" />
         </button>
       </div>
       
-      <div className="flex flex-wrap items-center mt-2 text-xs text-gray-500 gap-x-4">
-        <div className="flex items-center">
-          <Circle className="h-2 w-2 fill-red-400 text-red-400 mr-1" />
-          <span>Blocked dates</span>
-        </div>
-        
-        {error && (
-          <div className="text-red-500 font-medium mt-1">{error}</div>
-        )}
+      <div className="grid grid-cols-2 gap-10">
+        {renderMonth(0)}
+        {renderMonth(1)}
       </div>
       
-      <div className="flex justify-between mt-3">
-        {showKeyboard ? (
-          <button
-            type="button"
-            className={buttonVariants({ variant: "outline", size: "icon", className: "h-8 w-8 p-1 rounded border-gray-300" })}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect>
-              <path d="M6 8h.001"></path>
-              <path d="M10 8h.001"></path>
-              <path d="M14 8h.001"></path>
-              <path d="M18 8h.001"></path>
-              <path d="M6 12h.001"></path>
-              <path d="M10 12h.001"></path>
-              <path d="M14 12h.001"></path>
-              <path d="M18 12h.001"></path>
-              <path d="M6 16h12"></path>
-            </svg>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className={buttonVariants({ variant: "outline", className: "text-xs h-8 py-0 px-3 border-gray-300" })}
-            onClick={handleClearDates}
-          >
-            Clear dates
-          </button>
-        )}
-        
-        <div className="flex space-x-2">
-          {showKeyboard ? (
+      {/* Display error message */}
+      {error && (
+        <div className="text-red-500 text-sm mt-2">
+          {error}
+        </div>
+      )}
+      
+      {/* Additional buttons */}
+      {(onApply || onClose) && (
+        <div className="flex justify-end mt-4 gap-3">
+          {onApply && (
             <button
               type="button"
-              className={buttonVariants({ variant: "outline", className: "text-xs h-8 py-0 px-3 border-gray-300" })}
-              onClick={handleClearDates}
-            >
-              Clear dates
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className={buttonVariants({ variant: showKeyboard ? "default" : "outline", className: "text-xs h-8 py-0 px-3 border-gray-300" })}
-            onClick={handleClose}
-          >
-            Close
-          </button>
-          
-          {!showKeyboard && (
-            <button
-              type="button"
-              className={buttonVariants({ className: "text-xs h-8 py-0 px-3 bg-black hover:bg-black/90" })}
-              onClick={handleApply}
+              onClick={onApply}
+              className={cn(
+                "px-4 py-2 bg-black text-white rounded-md text-sm font-medium"
+              )}
             >
               Apply
             </button>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

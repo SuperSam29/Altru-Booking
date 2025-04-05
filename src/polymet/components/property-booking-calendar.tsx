@@ -7,65 +7,174 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CalendarIcon, XIcon, RefreshCw, Loader2 } from "lucide-react";
+import { CalendarIcon, Loader2, X } from "lucide-react";
 import { format } from "date-fns";
-import AvailabilityCalendar from "@/polymet/components/availability-calendar";
-import { BLOCKED_DATES } from "@/polymet/data/blocked-dates";
-import { fetchBlockedDatesFromIcal } from "@/polymet/utils/ical-parser";
-import IcalSettings from "@/polymet/components/ical-settings";
+import { Calendar } from "@/components/ui/calendar";
+import { fetchAirbnbCalendar, getBlockedDates } from '../utils/airbnb-calendar';
+import { useRouter } from "next/navigation";
 
 interface PropertyBookingCalendarProps {
   onChange?: (checkIn?: Date, checkOut?: Date) => void;
   defaultCheckInDate?: Date;
   defaultCheckOutDate?: Date;
   className?: string;
+  price?: number;
 }
+
+// Hardcoded Airbnb iCal URL
+const AIRBNB_ICAL_URL = "https://www.airbnb.co.uk/calendar/ical/1194779357845731963.ics?s=ca2a7532c96d1edb8cb1a49c80862fd1";
 
 export default function PropertyBookingCalendar({
   onChange,
   defaultCheckInDate,
   defaultCheckOutDate,
   className,
+  price = 4500,
 }: PropertyBookingCalendarProps) {
+  const router = useRouter();
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [checkInDate, setCheckInDate] = useState<Date | undefined>(defaultCheckInDate);
   const [checkOutDate, setCheckOutDate] = useState<Date | undefined>(defaultCheckOutDate);
-  const [blockedDates, setBlockedDates] = useState<Date[]>(BLOCKED_DATES);
-  const [icalUrl, setIcalUrl] = useState<string>("");
-  const [isLoadingBlockedDates, setIsLoadingBlockedDates] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [blockedDates, setBlockedDates] = useState<Date[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [calendarMessage, setCalendarMessage] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
-  const [showIcalSettings, setShowIcalSettings] = useState(false);
+  const [selectingCheckIn, setSelectingCheckIn] = useState(true);
+  const [numNights, setNumNights] = useState(0);
+  const [isInitialSelection, setIsInitialSelection] = useState(true);
+  const [guestCount, setGuestCount] = useState(1);
+  const [isGuestSelectorOpen, setIsGuestSelectorOpen] = useState(false);
 
-  // Fetch blocked dates from the API
-  const fetchBlockedDates = async (url?: string) => {
-    setIsLoadingBlockedDates(true);
-    setError(null);
-
-    try {
-      if (url) {
-        // Fetch real data from the API
-        const dates = await fetchBlockedDatesFromIcal(url);
-        setBlockedDates(dates);
-        setLastRefreshed(new Date());
-      } else {
-        // Use mock data as fallback
-        setBlockedDates(BLOCKED_DATES);
+  // Handle check-in date change
+  const handleDateSelect = (date: Date | { from?: Date; to?: Date } | undefined) => {
+    if (!date) return;
+    
+    // If we have a date object (single date clicked)
+    if (date instanceof Date) {
+      // Direct field selection mode
+      if (!isInitialSelection) {
+        if (selectingCheckIn) {
+          setCheckInDate(date);
+          // If the new check-in date is after check-out date, clear check-out
+          if (checkOutDate && date >= checkOutDate) {
+            setCheckOutDate(undefined);
+          }
+        } else {
+          // Selecting check-out date directly
+          if (checkInDate && date <= checkInDate) {
+            // Can't select a checkout date before checkin
+            return;
+          }
+          setCheckOutDate(date);
+        }
+        // Don't close calendar automatically in direct selection mode
+      } 
+      // Initial sequential selection mode
+      else {
+        // If both dates already selected, reset and start over
+        if (checkInDate && checkOutDate) {
+          setCheckInDate(date);
+          setCheckOutDate(undefined);
+          return;
+        }
+        
+        // First click or reset just happened
+        if (!checkInDate) {
+          setCheckInDate(date);
+        } 
+        // Second click
+        else {
+          // If selecting a date before check-in, use it as new check-in
+          if (date <= checkInDate) {
+            setCheckInDate(date);
+            setCheckOutDate(undefined);
+          } else {
+            setCheckOutDate(date);
+          }
+        }
       }
-    } catch (error) {
-      console.error("Error fetching blocked dates:", error);
-      setError("Failed to load availability data. Using default blocked dates.");
-      // Use mock data as fallback
-      setBlockedDates(BLOCKED_DATES);
-    } finally {
-      setIsLoadingBlockedDates(false);
+    } 
+    // If we have a date range object (range selected via drag)
+    else if ('from' in date && date.from) {
+      setCheckInDate(date.from);
+      setCheckOutDate(date.to);
     }
   };
 
-  // Fetch blocked dates when component mounts or icalUrl changes
+  // Check-in/Check-out selector
+  const handleFieldClick = (isCheckIn: boolean) => {
+    setIsCalendarOpen(true);
+    setSelectingCheckIn(isCheckIn);
+    setIsInitialSelection(false); // Switch to direct field selection mode
+  };
+
+  // Create a DateRange object for the calendar
+  const selectedDateRange = checkInDate 
+    ? { from: checkInDate, to: checkOutDate } 
+    : undefined;
+
+  // Load the calendar data when the component mounts
   useEffect(() => {
-    fetchBlockedDates();
-  }, [icalUrl]);
+    loadCalendarData();
+  }, []);
+
+  // Update numNights when dates change
+  useEffect(() => {
+    if (checkInDate && checkOutDate) {
+      const nights = Math.round((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
+      setNumNights(nights);
+    } else {
+      setNumNights(0);
+    }
+  }, [checkInDate, checkOutDate]);
+
+  // Function to load calendar data
+  const loadCalendarData = async () => {
+    setCalendarMessage(null);
+    setIsLoading(true);
+    
+    try {
+      console.log('Fetching calendar data from Airbnb URL:', AIRBNB_ICAL_URL);
+      
+      // Fetch the calendar data
+      const calendarData = await fetchAirbnbCalendar(AIRBNB_ICAL_URL);
+      
+      if (calendarData.success) {
+        console.log('Successfully fetched calendar data');
+        
+        // Get the blocked dates
+        const dates = getBlockedDates(calendarData);
+        console.log(`Found ${dates.length} blocked dates`);
+        
+        // Get available dates count for messaging
+        const availableDatesCount = calendarData.availableDates ? calendarData.availableDates.length : 0;
+        
+        // Update state
+        setBlockedDates(dates);
+        setLastRefreshed(new Date());
+        
+        // Set appropriate message based on the results
+        if (availableDatesCount === 0) {
+          setCalendarMessage('No available dates found.');
+        } else {
+          // Include information about booking periods and available dates
+          const bookingPeriodsCount = calendarData.bookingPeriods ? calendarData.bookingPeriods.length : 0;
+          setCalendarMessage(
+            `${availableDatesCount} available dates shown with ${bookingPeriodsCount} booking periods.`
+          );
+        }
+      } else {
+        console.error('Failed to fetch calendar data');
+        setCalendarMessage('Failed to fetch calendar data.');
+      }
+    } catch (error) {
+      console.error('Error loading calendar data:', error);
+      setCalendarMessage(`Error connecting to the calendar`);
+      setBlockedDates([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Update parent component when dates change
   useEffect(() => {
@@ -74,174 +183,255 @@ export default function PropertyBookingCalendar({
     }
   }, [checkInDate, checkOutDate, onChange]);
 
-  // Handle check-in date change
-  const handleCheckInChange = (date: Date | undefined) => {
-    setCheckInDate(date);
-    if (!date) {
-      setCheckOutDate(undefined);
-    }
-  };
-
-  // Handle check-out date change
-  const handleCheckOutChange = (date: Date | undefined) => {
-    setCheckOutDate(date);
-    if (date && checkInDate) {
-      // Close the calendar when both dates are selected
-      setIsCalendarOpen(false);
-    }
-  };
-
   // Handle calendar close
   const handleCalendarClose = () => {
     setIsCalendarOpen(false);
   };
+  
+  // Clear dates
+  const handleClearDates = () => {
+    setCheckInDate(undefined);
+    setCheckOutDate(undefined);
+    setSelectingCheckIn(true);
+  };
+
+  // Function to handle navigation to booking confirmation
+  const handleBookingConfirmation = () => {
+    // Navigate to booking confirmation page using Next.js router
+    router.push("/booking-confirmation");
+    
+    // Keep the old code commented out for reference if needed
+    // window.location.href = "/booking-confirmation";
+  };
+
+  // Function to increment guest count
+  const incrementGuests = () => {
+    if (guestCount < 10) {
+      setGuestCount(prev => prev + 1);
+    }
+  };
+
+  // Function to decrement guest count
+  const decrementGuests = () => {
+    if (guestCount > 1) {
+      setGuestCount(prev => prev - 1);
+    }
+  };
+
+  // Check if all required data is selected for booking
+  const isBookingReady = checkInDate && checkOutDate && guestCount > 0;
 
   return (
-    <div className={className}>
-      {showIcalSettings ? (
-        <div className="space-y-4">
-          <IcalSettings 
-            initialUrl={icalUrl}
-            onUrlChange={(url) => {
-              setIcalUrl(url);
-              setShowIcalSettings(false);
-              // Refetch blocked dates when URL changes
-              fetchBlockedDates(url);
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowIcalSettings(false)}
-          >
-            Cancel
-          </Button>
+    <div className={`${className}`}>
+      {/* Nights display when dates are selected */}
+      {numNights > 0 && (
+        <div className="mb-4">
+          <div className="text-lg font-semibold">{numNights} nights</div>
+          <div className="text-sm text-gray-500">
+            {checkInDate && format(checkInDate, "d MMM yyyy")} - {checkOutDate && format(checkOutDate, "d MMM yyyy")}
+          </div>
         </div>
-      ) : (
-        <>
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-blue-800 text-sm mb-4">
-            <p><strong>Note:</strong> This calendar is currently showing <strong>mock blocked dates</strong> for demonstration purposes. 
-            In a production environment, real blocked dates would be fetched from the iCal URL.</p>
-            
-            {icalUrl && (
-              <div className="mt-2">
-                <p className="font-medium">Connected iCal URL:</p>
-                <p className="text-xs break-all">{icalUrl}</p>
-              </div>
-            )}
-            
-            <div className="mt-2 flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowIcalSettings(true)}
-              >
-                {icalUrl ? "Change iCal URL" : "Connect iCal Calendar"}
-              </Button>
-              
-              {icalUrl && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fetchBlockedDates(icalUrl)}
-                >
-                  Refresh Dates
-                </Button>
-              )}
+      )}
+      
+      {/* Check-in/Check-out selector */}
+      <div className="grid grid-cols-2 border rounded-lg divide-x mb-4 relative">
+        {/* Check-in field */}
+        <div 
+          onClick={() => handleFieldClick(true)}
+          className="p-3 cursor-pointer hover:bg-gray-50 relative"
+        >
+          <div className="text-sm font-medium">CHECK-IN</div>
+          <div className="mt-1">
+            {checkInDate ? format(checkInDate, "dd/MM/yyyy") : "Select date"}
+          </div>
+          {checkInDate && (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation(); 
+                setCheckInDate(undefined);
+                setSelectingCheckIn(true);
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+        
+        {/* Check-out field */}
+        <div 
+          onClick={() => handleFieldClick(false)}
+          className="p-3 cursor-pointer hover:bg-gray-50 relative"
+        >
+          <div className="text-sm font-medium">CHECKOUT</div>
+          <div className="mt-1">
+            {checkOutDate ? format(checkOutDate, "dd/MM/yyyy") : "Select date"}
+          </div>
+          {checkOutDate && (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation(); 
+                setCheckOutDate(undefined);
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+      
+      {/* Guest selector */}
+      <div className="border rounded-lg mb-4">
+        <div 
+          onClick={() => setIsGuestSelectorOpen(!isGuestSelectorOpen)}
+          className="p-3 cursor-pointer hover:bg-gray-50 flex justify-between items-center"
+        >
+          <div>
+            <div className="text-sm font-medium">GUESTS</div>
+            <div className="mt-1">
+              {guestCount} {guestCount === 1 ? 'guest' : 'guests'}
             </div>
           </div>
-          
-          <Popover
-            open={isCalendarOpen}
-            onOpenChange={setIsCalendarOpen}
-          >
-            <PopoverTrigger asChild>
-              <div className="grid grid-cols-2 rounded-t-md overflow-hidden border cursor-pointer">
-                <div className="p-3 border-r">
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium">
-                      CHECK-IN
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {checkInDate ? (
-                        format(checkInDate, "dd/MM/yyyy")
-                      ) : (
-                        <span className="text-muted-foreground">
-                          Add date
-                        </span>
-                      )}
-                      <CalendarIcon className="h-4 w-4 opacity-50" />
-                    </div>
-                  </div>
-                </div>
-                <div className="p-3">
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium">
-                      CHECKOUT
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {checkOutDate ? (
-                        format(checkOutDate, "dd/MM/yyyy")
-                      ) : (
-                        <span className="text-muted-foreground">
-                          Add date
-                        </span>
-                      )}
-                      <CalendarIcon className="h-4 w-4 opacity-50" />
-                    </div>
-                  </div>
-                </div>
+          <div className={`transition-transform duration-200 ${isGuestSelectorOpen ? 'rotate-180' : ''}`}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+        </div>
+        
+        {isGuestSelectorOpen && (
+          <div className="p-4 border-t">
+            <div className="flex justify-between items-center">
+              <span>Guests</span>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={decrementGuests}
+                  disabled={guestCount <= 1}
+                  className={`w-8 h-8 rounded-full border flex items-center justify-center ${guestCount <= 1 ? 'text-gray-300 cursor-not-allowed' : 'hover:border-gray-500'}`}
+                >
+                  -
+                </button>
+                <span>{guestCount}</span>
+                <button
+                  onClick={incrementGuests}
+                  disabled={guestCount >= 10}
+                  className={`w-8 h-8 rounded-full border flex items-center justify-center ${guestCount >= 10 ? 'text-gray-300 cursor-not-allowed' : 'hover:border-gray-500'}`}
+                >
+                  +
+                </button>
               </div>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="center">
-              {isLoadingBlockedDates ? (
-                <div className="p-8 flex flex-col items-center justify-center">
-                  <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin mb-2"></div>
-                  <p className="text-sm text-muted-foreground">
-                    Loading availability...
-                  </p>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Price and booking button */}
+      <div>
+        {numNights > 0 && (
+          <div className="flex justify-between items-center mb-2">
+            <span>₹{price} × {numNights} nights</span>
+            <span>₹{price * numNights}</span>
+          </div>
+        )}
+        
+        <button
+          onClick={handleBookingConfirmation}
+          disabled={!isBookingReady}
+          className={`w-full p-3 rounded-lg text-white font-medium transition-colors ${isBookingReady ? 'bg-black hover:bg-gray-800' : 'bg-gray-300 cursor-not-allowed'}`}
+        >
+          {isBookingReady ? 'Reserve' : 'Select dates'}
+        </button>
+        
+        <div className="text-center mt-2 text-sm text-gray-500">
+          You won't be charged yet
+        </div>
+      </div>
+      
+      {/* Calendar Content - As a fixed overlay */}
+      {isCalendarOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-25 z-[9999] flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-xl max-w-[720px] w-[90%] max-h-[90vh] overflow-auto">
+            <div className="p-6">
+              {numNights > 0 && (
+                <div className="mb-5">
+                  <div className="text-lg font-semibold">{numNights} nights</div>
+                  <div className="text-sm text-gray-500">
+                    {checkInDate && format(checkInDate, "d MMM yyyy")} - {checkOutDate && format(checkOutDate, "d MMM yyyy")}
+                  </div>
                 </div>
-              ) : error ? (
-                <div className="p-8 flex flex-col items-center justify-center">
-                  <p className="text-sm text-red-500 mb-2">{error}</p>
-                  <Button variant="outline" size="sm" onClick={() => setIsCalendarOpen(false)}>
-                    Close
-                  </Button>
+              )}
+              
+              <div className="flex justify-between items-center mb-5">
+                <h3 className="text-xl font-semibold">
+                  {!numNights ? "Select dates" : ""}
+                </h3>
+                <button
+                  onClick={handleCalendarClose}
+                  className="text-base font-medium"
+                >
+                  Close
+                </button>
+              </div>
+              
+              {isLoading ? (
+                <div className="flex items-center justify-center p-6">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                  <span className="ml-3 text-base">Loading calendar data...</span>
                 </div>
               ) : (
-                <>
-                  <div className="p-2 flex justify-between items-center border-b">
-                    <div className="text-xs text-muted-foreground">
-                      {lastRefreshed ? (
-                        <span>Last refreshed: {format(lastRefreshed, "MMM d, yyyy HH:mm")}</span>
-                      ) : (
-                        <span>Availability data loaded</span>
-                      )}
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => fetchBlockedDates(icalUrl)} 
-                      disabled={isLoadingBlockedDates}
-                      className="h-7 w-7 p-0"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <AvailabilityCalendar 
-                    checkInDate={checkInDate}
-                    checkOutDate={checkOutDate}
-                    onCheckInChange={handleCheckInChange}
-                    onCheckOutChange={handleCheckOutChange}
+                <div className="w-full">
+                  <Calendar 
+                    mode="range"
+                    selected={selectedDateRange}
+                    onSelect={handleDateSelect}
                     blockedDates={blockedDates}
-                    onClose={handleCalendarClose}
+                    className="w-full"
+                    defaultMonth={checkInDate || new Date()}
                   />
-                </>
+                  
+                  <div className="mt-6 flex items-center">
+                    <div className="flex items-center mr-8">
+                      <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
+                      <span className="text-sm">Blocked dates</span>
+                    </div>
+                    <div className="flex items-center">
+                      <div className="w-3 h-3 rounded-full bg-black mr-2"></div>
+                      <span className="text-sm">Selected date</span>
+                    </div>
+                  </div>
+                </div>
               )}
-            </PopoverContent>
-          </Popover>
-        </>
+              
+              <div className="flex justify-between mt-6 pt-4 border-t">
+                <button 
+                  onClick={handleClearDates}
+                  className="text-sm font-medium underline"
+                >
+                  Clear dates
+                </button>
+                {checkInDate && checkOutDate ? (
+                  <button
+                    onClick={handleCalendarClose}
+                    className="px-6 py-2 bg-black text-white rounded-lg text-sm font-medium"
+                  >
+                    Apply
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleCalendarClose}
+                    className="px-6 py-2 bg-black text-white rounded-lg text-sm font-medium"
+                  >
+                    Close
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+            </div>
       )}
+      
+      {/* Guest selector would go here */}
     </div>
   );
 }

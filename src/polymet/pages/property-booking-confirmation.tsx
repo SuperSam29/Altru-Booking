@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+// Remove react-router-dom imports
+// import { useParams, Link } from "react-router-dom";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,9 +13,12 @@ import BookingContactForm from "@/polymet/components/booking-contact-form";
 import PropertyBookingSummary from "@/polymet/components/property-booking-summary";
 import PropertyPriceBreakdown from "@/polymet/components/property-price-breakdown";
 import { PROPERTY_DATA } from "@/polymet/data/property-data";
+import Link from 'next/link'; // Import next/link
 
 export default function PropertyBookingConfirmation() {
-  const { propertyId = "prop123" } = useParams();
+  // Remove useParams for now, assuming default or context-provided ID
+  // const { propertyId = "prop123" } = useParams();
+  const propertyId = "prop123"; // Use a default or fetch from context/props
   const property = PROPERTY_DATA; // In a real app, fetch based on propertyId
 
   // Mock data for the booking
@@ -59,8 +63,9 @@ export default function PropertyBookingConfirmation() {
         data-pol-file-name="property-booking-confirmation"
         data-pol-file-type="page"
       >
+        {/* Use next/link */}
         <Link
-          to={`/property/${propertyId}`}
+          href={`/property/${propertyId}`} // Use href instead of to
           className="inline-flex items-center text-lg font-medium"
           data-pol-id="4st1o3"
           data-pol-file-name="property-booking-confirmation"
