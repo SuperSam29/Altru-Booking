@@ -10,7 +10,7 @@ import {
 import { CalendarIcon, Loader2, X } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
-import { fetchAirbnbCalendar, getBlockedDates } from '../utils/airbnb-calendar';
+import ICAL from 'ical.js';
 
 // Hardcoded hotelId
 const hotelId = "67eb400244436b877c006482";
@@ -177,12 +177,86 @@ export default function PropertyBookingCalendar({
     }
   };
 
+  // Function to load calendar data from the ICS API endpoint
+  const loadCalendarData = async () => {
+    setIsLoading(true);
+    setCalendarMessage("Loading availability data...");
+    
+    try {
+      // Use the provided ICS calendar API endpoint with propertyId
+      const icsUrl = `https://api-nami.lucify.in/api/v1/hotel/nami-calendar/${propertyId}.ics`;
+      
+      console.log("Fetching calendar data from:", icsUrl);
+      
+      // Fetch the ICS file directly
+      const response = await fetch(icsUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch calendar data: ${response.status}`);
+      }
+      
+      // Get the ICS data as text
+      const icsData = await response.text();
+      
+      // Parse the ICS data using ical.js
+      const jcalData = ICAL.parse(icsData);
+      const vcalendar = new ICAL.Component(jcalData);
+      const vevents = vcalendar.getAllSubcomponents('vevent');
+      
+      // Process events to find blocked dates
+      const blocked: Date[] = [];
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      
+      vevents.forEach(vevent => {
+        const event = new ICAL.Event(vevent);
+        const summary = event.summary || '';
+        
+        // Check if this is a blocked/unavailable date
+        const isBlocked = 
+          summary.toLowerCase().includes('unavailable') || 
+          summary.toLowerCase().includes('blocked') || 
+          summary.toLowerCase().includes('busy') || 
+          summary.toLowerCase().includes('not available');
+        
+        if (isBlocked) {
+          // Get start and end dates
+          const startDate = event.startDate.toJSDate();
+          const endDate = event.endDate.toJSDate();
+          
+          // Create a range of dates between start and end
+          let currentDate = new Date(startDate);
+          while (currentDate < endDate) {
+            if (currentDate >= now) { // Only include future dates
+              blocked.push(new Date(currentDate));
+            }
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+        }
+      });
+      
+      // Combine with past dates
+      const pastDates = getPastDates();
+      const allBlockedDates = [...blocked, ...pastDates];
+      
+      console.log(`Calendar loaded: ${allBlockedDates.length} blocked dates (including past dates)`);
+      setBlockedDates(allBlockedDates);
+      setLastRefreshed(new Date());
+      setCalendarMessage("Select your desired dates.");
+    } catch (error) {
+      console.error("Error loading calendar data:", error);
+      setCalendarMessage("Error loading availability. Using default availability data.");
+      
+      // Fallback to just past dates if the API fails
+      setBlockedDates(getPastDates());
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // useEffect for initial setup (blocking past dates)
   useEffect(() => {
-    // loadCalendarData(); // Keep commented out
-    setBlockedDates(getPastDates()); 
-    setIsLoading(false); 
-    setCalendarMessage("Select your desired dates."); 
+    loadCalendarData(); // Now calling the calendar loading function
   }, []);
 
   // Update numNights and fetch dynamic price when dates change
@@ -200,9 +274,6 @@ export default function PropertyBookingCalendar({
       setIsPriceLoading(false);
     }
   }, [checkInDate, checkOutDate]);
-
-  // Function to load calendar data - (Keep commented out)
-  // const loadCalendarData = async () => { ... };
 
   // Update parent component when dates change
   useEffect(() => {
