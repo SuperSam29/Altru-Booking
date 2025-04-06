@@ -153,7 +153,7 @@ export default function PropertyBookingConfirmation() {
   // Re-introduce useParams
   const { propertyId = "prop123" } = useParams();
   const property = PROPERTY_DATA; // In a real app, fetch based on propertyId
-  const hotelId = "67eb400244436b877c006482"; // Hardcoded hotelId
+  const [hotelId, setHotelId] = useState<string | null>(null); // State for hotel ID
 
   // Initialize state with null/defaults
   const [tripDetails, setTripDetails] = useState<TripDetails>({
@@ -165,6 +165,7 @@ export default function PropertyBookingConfirmation() {
   const [pricing, setPricing] = useState<PricingDetails | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false); // Add submitting state
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+  const [showMissingHotelIdError, setShowMissingHotelIdError] = useState(false); // Error state for missing hotel ID
   const [successDetails, setSuccessDetails] = useState<{
     bookingId: string;
     amount: number;
@@ -181,6 +182,15 @@ export default function PropertyBookingConfirmation() {
     const storedCheckOut = localStorage.getItem('bookingCheckOut');
     const storedGuests = localStorage.getItem('bookingGuests');
     const storedBasePrice = localStorage.getItem('bookingBasePrice');
+    const storedHotelId = localStorage.getItem('bookingHotelId');
+
+    // Check if hotel ID exists
+    if (!storedHotelId) {
+      console.error("Hotel ID not found in localStorage");
+      setShowMissingHotelIdError(true);
+    } else {
+      setHotelId(storedHotelId);
+    }
 
     const checkIn = storedCheckIn ? new Date(storedCheckIn) : null;
     const checkOut = storedCheckOut ? new Date(storedCheckOut) : null;
@@ -234,6 +244,13 @@ export default function PropertyBookingConfirmation() {
   }) => {
     setIsSubmitting(true);
 
+    // Check if hotel ID is available
+    if (!hotelId) {
+      alert("Hotel ID is missing. Please go back and try selecting dates again.");
+      setIsSubmitting(false);
+      return;
+    }
+
     let customerId: string | null = null;
     let bookingDetails: any = null; // To store booking response
     const contactNumber = `${formData.countryCode}${formData.phoneNumber.replace(/\D/g, '')}`;
@@ -279,7 +296,7 @@ export default function PropertyBookingConfirmation() {
 
       // 3. Call Booking API
       const bookingPayload = {
-        hotelId: hotelId,
+        hotelId: hotelId, // Use the hotelId from state
         checkInAt: tripDetails.checkIn.toISOString().split('T')[0], // YYYY-MM-DD
         checkOutAt: tripDetails.checkOut.toISOString().split('T')[0], // YYYY-MM-DD
         customerId: customerId, // Use fetched customerId
@@ -451,6 +468,27 @@ export default function PropertyBookingConfirmation() {
     setShowSuccessPopup(false);
     window.location.href = "https://altruliving.in";
   };
+
+  // Show error message if hotel ID is missing
+  if (showMissingHotelIdError) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
+        <div className="p-6 border rounded-lg bg-red-50 border-red-200">
+          <div className="text-red-600 font-medium mb-2">Hotel ID Not Found</div>
+          <p className="text-gray-700 mb-4">
+            Unable to complete your booking. The hotel ID is missing from the booking data.
+          </p>
+          <p className="text-sm text-gray-500 mb-4">
+            Please go back to the property page and try selecting dates again.
+          </p>
+          <Link to={`/property/${propertyId}`} className="inline-flex items-center text-white bg-black px-4 py-2 rounded-md">
+            <ArrowLeftIcon className="mr-2 h-4 w-4" />
+            Return to Property Page
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

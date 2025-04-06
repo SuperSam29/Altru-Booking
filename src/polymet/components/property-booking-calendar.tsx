@@ -10,10 +10,38 @@ import {
 import { CalendarIcon, Loader2, X } from "lucide-react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
-import ICAL from 'ical.js';
+import { fetchNamiCalendar, getBlockedDates } from '../utils/nami-calendar';
+import { useParams, useLocation } from "react-router-dom";
 
-// Hardcoded hotelId
-const hotelId = "67eb400244436b877c006482";
+// Helper function to extract hotel ID from URL
+function extractHotelIdFromUrl(): string | undefined {
+  // First try getting it from URL parameters
+  // Get the current URL path
+  const pathname = window.location.pathname;
+  console.log('Current pathname for hotel ID extraction:', pathname);
+  
+  // Check if we have a pattern like /property/HOTEL_ID or similar
+  const propertyPathMatch = pathname.match(/\/property\/([^\/]+)/);
+  console.log('Property path match result:', propertyPathMatch);
+  
+  if (propertyPathMatch && propertyPathMatch[1]) {
+    console.log('Hotel ID extracted from path:', propertyPathMatch[1]);
+    return propertyPathMatch[1];
+  }
+  
+  // If no match found in the URL path, look for search params
+  const urlParams = new URLSearchParams(window.location.search);
+  const hotelId = urlParams.get('hotelId');
+  console.log('Hotel ID from URL parameters:', hotelId);
+  
+  if (hotelId) {
+    return hotelId;
+  }
+  
+  // If no hotel ID found in URL, return undefined
+  console.log('No hotel ID found in URL');
+  return undefined;
+}
 
 // Helper function to get dates before today
 function getPastDates(): Date[] {
@@ -52,6 +80,8 @@ export default function PropertyBookingCalendar({
   className,
   propertyId,
 }: PropertyBookingCalendarProps) {
+  // Extract hotel ID from URL
+  const [hotelId, setHotelId] = useState<string | undefined>(extractHotelIdFromUrl());
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [checkInDate, setCheckInDate] = useState<Date | undefined>(defaultCheckInDate);
   const [checkOutDate, setCheckOutDate] = useState<Date | undefined>(defaultCheckOutDate);
@@ -64,6 +94,7 @@ export default function PropertyBookingCalendar({
   const [isInitialSelection, setIsInitialSelection] = useState(true);
   const [guestCount, setGuestCount] = useState(1);
   const [isGuestSelectorOpen, setIsGuestSelectorOpen] = useState(false);
+  const [showHotelIdError, setShowHotelIdError] = useState(false);
 
   // State for dynamic pricing
   const [dynamicPrice, setDynamicPrice] = useState<number | null>(null);
@@ -138,8 +169,29 @@ export default function PropertyBookingCalendar({
     ? { from: checkInDate, to: checkOutDate } 
     : undefined;
 
-  // Function to fetch price from the new API
+  // Update hotel ID when URL changes
+  useEffect(() => {
+    console.log('URL changed, current path:', window.location.pathname);
+    console.log('URL search params:', window.location.search);
+    
+    const extractedHotelId = extractHotelIdFromUrl();
+    setHotelId(extractedHotelId);
+    setShowHotelIdError(!extractedHotelId);
+    console.log(`Hotel ID extracted from URL: ${extractedHotelId || 'not found, showing error'}`);
+    
+    if (!extractedHotelId) {
+      console.error('Hotel ID extraction failed. This will show an error message to the user.');
+    }
+  }, [window.location.pathname, window.location.search]);
+
+  // Function to fetch price from the API
   const fetchPriceForDates = async (checkIn: Date, checkOut: Date) => {
+    if (!hotelId) {
+      setPriceError("Hotel ID not found. Cannot fetch pricing information.");
+      setIsPriceLoading(false);
+      return;
+    }
+
     setIsPriceLoading(true);
     setPriceError(null);
     setDynamicPrice(null); // Clear previous price
@@ -147,6 +199,7 @@ export default function PropertyBookingCalendar({
     const checkInFormatted = checkIn.toISOString().split('T')[0]; // YYYY-MM-DD
     const checkOutFormatted = checkOut.toISOString().split('T')[0]; // YYYY-MM-DD
 
+    // Use hotelId from state, which comes from URL
     const apiUrl = `https://api-nami.lucify.in/api/v1/booking/availability-pricing?hotelId=${hotelId}&checkInAt=${checkInFormatted}&checkOutAt=${checkOutFormatted}`;
 
     try {
@@ -176,88 +229,56 @@ export default function PropertyBookingCalendar({
       setIsPriceLoading(false);
     }
   };
-
-  // Function to load calendar data from the ICS API endpoint
+  
+  // Function to load calendar data
   const loadCalendarData = async () => {
+    if (!hotelId) {
+      setBlockedDates(getPastDates());
+      setCalendarMessage("Hotel ID not found. Calendar availability cannot be loaded.");
+      setIsLoading(false);
+      return;
+    }
+    
     setIsLoading(true);
     setCalendarMessage("Loading availability data...");
     
     try {
-      // Use the provided ICS calendar API endpoint with propertyId
-      const icsUrl = `https://api-nami.lucify.in/api/v1/hotel/nami-calendar/${propertyId}.ics`;
+      console.log(`Loading calendar data for hotel ID: ${hotelId}`);
       
-      console.log("Fetching calendar data from:", icsUrl);
+      // Fetch calendar data from Nami API, passing the hotel ID
+      const calendarData = await fetchNamiCalendar(hotelId);
       
-      // Fetch the ICS file directly
-      const response = await fetch(icsUrl);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch calendar data: ${response.status}`);
+      if (!calendarData.success) {
+        const errorMessage = calendarData.error || 'Failed to load calendar data';
+        setCalendarMessage(`Error: ${errorMessage}`);
+        // Fallback to just blocking past dates
+        setBlockedDates(getPastDates());
+        return;
       }
       
-      // Get the ICS data as text
-      const icsData = await response.text();
+      // Get blocked dates
+      const unavailableDates = getBlockedDates(calendarData);
       
-      // Parse the ICS data using ical.js
-      const jcalData = ICAL.parse(icsData);
-      const vcalendar = new ICAL.Component(jcalData);
-      const vevents = vcalendar.getAllSubcomponents('vevent');
-      
-      // Process events to find blocked dates
-      const blocked: Date[] = [];
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      
-      vevents.forEach(vevent => {
-        const event = new ICAL.Event(vevent);
-        const summary = event.summary || '';
-        
-        // Check if this is a blocked/unavailable date
-        const isBlocked = 
-          summary.toLowerCase().includes('unavailable') || 
-          summary.toLowerCase().includes('blocked') || 
-          summary.toLowerCase().includes('busy') || 
-          summary.toLowerCase().includes('not available');
-        
-        if (isBlocked) {
-          // Get start and end dates
-          const startDate = event.startDate.toJSDate();
-          const endDate = event.endDate.toJSDate();
-          
-          // Create a range of dates between start and end
-          let currentDate = new Date(startDate);
-          while (currentDate < endDate) {
-            if (currentDate >= now) { // Only include future dates
-              blocked.push(new Date(currentDate));
-            }
-            currentDate.setDate(currentDate.getDate() + 1);
-          }
-        }
-      });
-      
-      // Combine with past dates
-      const pastDates = getPastDates();
-      const allBlockedDates = [...blocked, ...pastDates];
-      
-      console.log(`Calendar loaded: ${allBlockedDates.length} blocked dates (including past dates)`);
-      setBlockedDates(allBlockedDates);
-      setLastRefreshed(new Date());
+      // Set blocked dates state
+      setBlockedDates(unavailableDates);
       setCalendarMessage("Select your desired dates.");
-    } catch (error) {
-      console.error("Error loading calendar data:", error);
-      setCalendarMessage("Error loading availability. Using default availability data.");
+      setLastRefreshed(new Date());
       
-      // Fallback to just past dates if the API fails
+      console.log(`Calendar data loaded with ${unavailableDates.length} blocked dates`);
+    } catch (error) {
+      console.error('Error loading calendar data:', error);
+      setCalendarMessage("Could not load availability. Using default availability instead.");
+      // Fallback to just blocking past dates
       setBlockedDates(getPastDates());
     } finally {
       setIsLoading(false);
     }
   };
-
-  // useEffect for initial setup (blocking past dates)
+  
+  // useEffect for initial setup and when hotelId changes
   useEffect(() => {
-    loadCalendarData(); // Now calling the calendar loading function
-  }, []);
+    loadCalendarData(); // Load calendar data
+  }, [hotelId]); // Reload when hotelId changes
 
   // Update numNights and fetch dynamic price when dates change
   useEffect(() => {
@@ -296,16 +317,20 @@ export default function PropertyBookingCalendar({
 
   // Function to handle navigation to booking confirmation
   const handleBookingConfirmation = () => {
-    // Check if dates, guests, and dynamic price are ready
+    // Check if dates, guests, dynamic price, and hotel ID are ready
+    if (!hotelId) {
+      setCalendarMessage("Hotel ID not found. Cannot proceed with booking.");
+      return;
+    }
+
     if (checkInDate && checkOutDate && guestCount > 0 && dynamicPrice !== null && !isPriceLoading && !priceError) {
       // Store booking details in localStorage
       localStorage.setItem('bookingCheckIn', checkInDate.toISOString());
       localStorage.setItem('bookingCheckOut', checkOutDate.toISOString());
       localStorage.setItem('bookingGuests', guestCount.toString());
+      localStorage.setItem('bookingHotelId', hotelId); // Store hotel ID for confirmation page
+      
       // Store the DYNAMIC price (total for the stay) as bookingBasePrice for confirmation page logic
-      // NOTE: Confirmation page calculates tax based on this being the *nightly* price. 
-      // We need to adjust either here (pass nightly) or on confirmation page (use total).
-      // Let's calculate and pass the average nightly price for consistency with previous logic.
       const nightlyPrice = numNights > 0 ? dynamicPrice / numNights : 0;
       localStorage.setItem('bookingBasePrice', nightlyPrice.toString()); 
 
@@ -334,8 +359,23 @@ export default function PropertyBookingCalendar({
     }
   };
 
-  // Check if all required data is selected for booking
-  const isBookingReady = checkInDate && checkOutDate && guestCount > 0 && dynamicPrice !== null && !isPriceLoading && !priceError;
+  // Check if all required data is selected for booking and hotel ID exists
+  const isBookingReady = hotelId && checkInDate && checkOutDate && guestCount > 0 && dynamicPrice !== null && !isPriceLoading && !priceError;
+
+  // If no hotel ID is found, show an error message instead of the calendar
+  if (showHotelIdError) {
+    return (
+      <div className={`${className} p-6 border rounded-lg bg-red-50 border-red-200`}>
+        <div className="text-red-600 font-medium mb-2">Hotel ID Not Found</div>
+        <p className="text-gray-700 mb-4">
+          Unable to load availability information. The hotel ID parameter is missing from the URL.
+        </p>
+        <p className="text-sm text-gray-500">
+          Please ensure you're accessing this page with a valid hotel ID in the URL.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className={`${className}`}>
